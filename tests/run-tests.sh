@@ -153,6 +153,22 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# 10. Oversized input (over 20 MB) is blocked before anything is copied or scanned
+clear_sandbox
+head -c 26214400 /dev/zero > "$SANDBOX/big.bin"
+check "oversized sandbox blocked" 5 "Nothing was copied or executed" no python anything.py
+
+# 11. An infinite loop is killed by the run timeout
+clear_sandbox
+cat > "$SANDBOX/t11.py" << 'T11'
+import time
+while True:
+    time.sleep(1)
+T11
+export GUARD_TIMEOUT=10
+check "infinite loop killed by timeout" 124 "TIMEOUT" no python t11.py
+unset GUARD_TIMEOUT
+
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

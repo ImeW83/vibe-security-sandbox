@@ -16,7 +16,7 @@ A two-layer guardrail for running AI-generated code safely.
 - `config/semgrep-rules/` : custom Semgrep rules (`eval`/`exec`), loaded by `scan.sh`
 - `config/rules/` : local copy of community Semgrep rules (Python and JavaScript), so scans run offline
 - `config/requirements.in` / `config/requirements.txt` : reviewed list of Python packages (with hashes) pre-installed into the image at build time
-- `tests/run-tests.sh` : regression suite that runs 11 checks through the full pipeline
+- `tests/run-tests.sh` : regression suite that runs 13 checks through the full pipeline
 - `config/safe-run.sh` : scan, then run in the sandbox
 - `config/unpack-output.sh` : safely saves run results to `output/` (regular files only, size-checked)
 - `output/` : the only place run results survive; git-ignored, treat contents as untrusted
@@ -34,7 +34,7 @@ A two-layer guardrail for running AI-generated code safely.
 ## Layer 2 controls
 - Semgrep image pinned by digest
 - Read-only mount of the scanned code
-- Fails closed: findings (exit 1), scanner crash (exit 2), an empty sandbox (exit 3) and a detected secret (exit 4) all block execution
+- Fails closed: findings (exit 1), scanner crash (exit 2), an empty sandbox (exit 3), a detected secret (exit 4), oversized input over 20 MB (exit 5) and a run over the time limit (exit 124, default 60 seconds) all block or stop execution
 
 ## Usage
 ```bash
@@ -47,7 +47,7 @@ A two-layer guardrail for running AI-generated code safely.
 ```bash
 ./tests/run-tests.sh
 ```
-Runs 11 checks through the full pipeline: clean Python and JavaScript run, SQL injection and `eval` are blocked (exit 1), an empty sandbox is blocked (exit 3), a hardcoded secret is blocked (exit 4), a pre-installed package (`requests`) imports while the network stays blocked, a file written to `/output` is saved while one written next to the code is discarded, and an 80 MB write is stopped at the 50 MB cap. The script moves anything in `sandbox/` and `output/` aside first and restores it afterwards. It exits non-zero if any check fails.
+Runs 13 checks through the full pipeline: clean Python and JavaScript run, SQL injection and `eval` are blocked (exit 1), an empty sandbox is blocked (exit 3), a hardcoded secret is blocked (exit 4), a pre-installed package (`requests`) imports while the network stays blocked, a file written to `/output` is saved while one written next to the code is discarded, an 80 MB write is stopped at the 50 MB cap, a `sandbox/` over 20 MB is blocked (exit 5), and an infinite loop is killed by the run timeout (exit 124). The script moves anything in `sandbox/` and `output/` aside first and restores it afterwards. It exits non-zero if any check fails.
 
 ## Known limitations
 - Community rules are incomplete (an `eval` call was missed in testing). A custom rule in `config/semgrep-rules/` now blocks `eval()` and `exec()` in Python and `eval()` in JavaScript/TypeScript, but indirect or obfuscated calls can still evade pattern matching
@@ -60,3 +60,5 @@ Runs 11 checks through the full pipeline: clean Python and JavaScript run, SQL i
 - The TruffleHog image is pinned by digest (`sha256:0d003fc3...`) and must be updated by hand to get new detectors
 - Community rules in `config/rules/` are copied from the official `semgrep/semgrep-rules` repo, pinned to commit `16b9e6d45f10649f6a531ec4838ed9924372c3bc`
 - The noisy rule `python.lang.security.audit.dangerous-subprocess-use-audit` was removed on purpose, because it blocks any `subprocess` call with a variable argument even when `shell=False`. `subprocess-shell-true` still blocks the dangerous `shell=True` case
+- The best-practice rule `python.lang.best-practice.arbitrary-sleep` was also removed on purpose: upstream labels it ERROR, but `time.sleep()` is normal in retries and polling and is not a security risk
+- The run time limit defaults to 60 seconds and can be changed with the `GUARD_TIMEOUT` environment variable. Anyone who can set environment variables for the script can raise it, which is fine for a tool you run yourself but not for a shared pipeline
