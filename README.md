@@ -13,6 +13,7 @@ A two-layer guardrail for running AI-generated code safely.
 - `config/entrypoint.sh` : runtime checks inside the container
 - `config/scan.sh` : Semgrep scan (fail-closed)
 - `config/semgrep-rules/` : custom Semgrep rules (`eval`/`exec`), loaded by `scan.sh`
+- `config/rules/` : local copy of community Semgrep rules (Python and JavaScript), so scans run offline
 - `config/safe-run.sh` : scan, then run in the sandbox
 - `Dockerfile` : Python 3.12 slim + Node.js, non-root user
 - `docker-compose.yml` : container limits
@@ -40,6 +41,8 @@ A two-layer guardrail for running AI-generated code safely.
 ## Known limitations
 - Community rules are incomplete (an `eval` call was missed in testing). A custom rule in `config/semgrep-rules/` now blocks `eval()` and `exec()` in Python and `eval()` in JavaScript/TypeScript, but indirect or obfuscated calls can still evade pattern matching
 - `--severity ERROR` ignores WARNING-level findings
-- `--config auto` needs internet to fetch rules, so scans fail (and block) offline
+- Scans run fully offline using a local copy of the rules (`--metrics off`, `--disable-version-check`). The trade-off is that coverage is only what is copied into `config/rules/` (Python and JavaScript folders only), so the rules must be refreshed by hand to pick up new upstream rules
 - The scan and the run use the same private snapshot of `sandbox/`, so files cannot change between them (TOCTOU closed). Files the code writes at runtime are lost when the run ends
 - Dependencies must be installed at image build time, since the sandbox has no network
+- Community rules in `config/rules/` are copied from the official `semgrep/semgrep-rules` repo, pinned to commit `16b9e6d45f10649f6a531ec4838ed9924372c3bc`
+- The noisy rule `python.lang.security.audit.dangerous-subprocess-use-audit` was removed on purpose, because it blocks any `subprocess` call with a variable argument even when `shell=False`. `subprocess-shell-true` still blocks the dangerous `shell=True` case

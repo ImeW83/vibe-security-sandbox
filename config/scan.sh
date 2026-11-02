@@ -32,8 +32,9 @@ fi
 docker run --rm \
   -v "$TARGET_DIR:/src:ro,z" \
   -v "$SCRIPT_DIR/semgrep-rules:/rules:ro,z" \
+  -v "$SCRIPT_DIR/rules:/community-rules:ro,z" \
   "$SEMGREP_IMAGE" \
-  semgrep scan --config auto --config /rules --severity ERROR --error /src
+  semgrep scan --config /community-rules --config /rules --metrics off --disable-version-check --severity ERROR --error /src
 
 SCAN_EXIT_CODE=$?
 
