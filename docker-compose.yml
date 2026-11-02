@@ -1,0 +1,30 @@
+services:
+  sandbox:
+    build: .
+    container_name: vibe-security-sandbox
+    stdin_open: true
+    tty: true
+
+    # Only this folder is writable from the host side
+    # ":z" is needed on Fedora so SELinux allows the container to access it
+    volumes:
+      - ./sandbox:/sandbox:z
+
+    # Filesystem lockdown
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+
+    # Privilege lockdown
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 100
+
+    # No network access
+    network_mode: none

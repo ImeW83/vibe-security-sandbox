@@ -1,0 +1,14 @@
+# Secrets
+.env
+
+# Agent-generated code stays out of the repo; only the folder itself is tracked
+sandbox/*
+!sandbox/.gitkeep
+
+# OS and tooling noise
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+node_modules/
+npm-debug.log*
