@@ -1,0 +1,20 @@
+rules:
+  - id: custom-python-eval
+    languages: [python]
+    severity: ERROR
+    message: "Use of eval() on dynamic input can lead to arbitrary code execution. Use ast.literal_eval or a safe parser instead."
+    patterns:
+      - pattern: eval(...)
+      - pattern-not: eval("...")
+  - id: custom-python-exec
+    languages: [python]
+    severity: ERROR
+    message: "Use of exec() can lead to arbitrary code execution."
+    pattern: exec(...)
+  - id: custom-js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Use of eval() on dynamic input can lead to arbitrary code execution."
+    patterns:
+      - pattern: eval(...)
+      - pattern-not: eval("...")

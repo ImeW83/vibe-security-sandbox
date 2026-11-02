@@ -31,8 +31,9 @@ fi
 # :ro = scanner can't modify the code, :z = SELinux label for Fedora
 docker run --rm \
   -v "$TARGET_DIR:/src:ro,z" \
+  -v "$SCRIPT_DIR/semgrep-rules:/rules:ro,z" \
   "$SEMGREP_IMAGE" \
-  semgrep scan --config auto --severity ERROR --error /src
+  semgrep scan --config auto --config /rules --severity ERROR --error /src
 
 SCAN_EXIT_CODE=$?
 

@@ -12,6 +12,7 @@ A two-layer guardrail for running AI-generated code safely.
 - `sandbox/` : AI-generated code goes here (contents are git-ignored)
 - `config/entrypoint.sh` : runtime checks inside the container
 - `config/scan.sh` : Semgrep scan (fail-closed)
+- `config/semgrep-rules/` : custom Semgrep rules (`eval`/`exec`), loaded by `scan.sh`
 - `config/safe-run.sh` : scan, then run in the sandbox
 - `Dockerfile` : Python 3.12 slim + Node.js, non-root user
 - `docker-compose.yml` : container limits
@@ -37,7 +38,7 @@ A two-layer guardrail for running AI-generated code safely.
 ```
 
 ## Known limitations
-- Semgrep community rules are incomplete (an `eval` call was missed in testing)
+- Community rules are incomplete (an `eval` call was missed in testing). A custom rule in `config/semgrep-rules/` now blocks `eval()` and `exec()` in Python and `eval()` in JavaScript/TypeScript, but indirect or obfuscated calls can still evade pattern matching
 - `--severity ERROR` ignores WARNING-level findings
 - `--config auto` needs internet to fetch rules, so scans fail (and block) offline
 - The scan and the run use the same private snapshot of `sandbox/`, so files cannot change between them (TOCTOU closed). Files the code writes at runtime are lost when the run ends
