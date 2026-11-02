@@ -89,8 +89,8 @@ pip runs with `--require-hashes`, so a tampered download fails the build. Node p
 - The secret filter is pattern-based, so unusual or custom secret formats can be missed. With `--no-verification`, findings are reported as unverified, so a revoked or fake key still blocks.
 
 **Pinning and updates**
-- Semgrep and TruffleHog images are pinned by digest and updated by hand.
-- The sandbox base image (`python:3.12-slim`) is pinned by tag, not by digest.
+- The Semgrep and TruffleHog images and the sandbox base image (`python:3.12-slim`) are all pinned by digest, so none changes unless you change it.
+- Pinned images do not get security updates on their own. To update one: pull the new image, read its digest (`docker image inspect <image> --format '{{index .RepoDigests 0}}'`), change the digest in the `Dockerfile` or `config/scan.sh`, rebuild with `docker compose build`, and re-run `./tests/run-tests.sh` before merging.
 
 **Output and limits**
 - `output/` contents are untrusted. The unpacker keeps regular files only (symlinks, devices, absolute paths and `..` are dropped), but review files before opening or running them.
