@@ -1,0 +1,9 @@
+{
+  "name": "vibe-security-sandbox-deps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reviewed Node packages pre-installed into the sandbox image at build time",
+  "dependencies": {
+    "lodash": "4.17.21"
+  }
+}

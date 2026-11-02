@@ -5,6 +5,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-install pinned Node packages (build time only, lockfile enforced, no install scripts)
+COPY config/package.json config/package-lock.json /opt/app/
+RUN cd /opt/app && npm ci --ignore-scripts --no-audit --no-fund && npm cache clean --force
+ENV NODE_PATH=/opt/app/node_modules
+
 # Pre-install pinned Python packages (build time only, hashes enforced)
 COPY config/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \

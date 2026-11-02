@@ -169,6 +169,18 @@ export GUARD_TIMEOUT=10
 check "infinite loop killed by timeout" 124 "TIMEOUT" no python t11.py
 unset GUARD_TIMEOUT
 
+# 12. Pre-installed Node package (lodash) loads and the network stays blocked
+clear_sandbox
+cat > "$SANDBOX/t12.js" << 'T12'
+const _ = require("lodash");
+require("http").get("http://example.com", () => {
+  console.log("NETWORK" + "_REACHABLE");
+}).on("error", () => {
+  console.log("node deps ok, network blocked: " + _.chunk([1, 2, 3, 4], 2).length);
+});
+T12
+check "pinned Node dependency loads, network blocked" 0 "node deps ok, network blocked: 2" no node t12.js
+
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

@@ -27,9 +27,10 @@ A guardrail for running AI-generated code. The code is checked for secrets and s
 - `config/rules/` : local copy of community Semgrep rules (277 files, Python and JavaScript)
 - `config/semgrep-rules/` : custom Semgrep rules (3 rules: `eval` in Python and JavaScript/TypeScript, `exec` in Python)
 - `config/requirements.in` / `config/requirements.txt` : reviewed Python packages (with hashes) installed into the image at build time
+- `config/package.json` / `config/package-lock.json` : reviewed Node packages (with integrity hashes) installed into the image at build time
 - `Dockerfile` : Python 3.12 slim plus Node.js 20 (from Debian), non-root user
 - `docker-compose.yml` : container limits
-- `tests/run-tests.sh` : regression suite (13 checks through the full pipeline)
+- `tests/run-tests.sh` : regression suite (14 checks through the full pipeline)
 
 ## Layer 1 controls (container)
 - Non-root user (`sandboxuser`), no login shell
@@ -69,16 +70,24 @@ Run results go in `/output` inside the container and appear in `output/` on the 
 ```bash
 ./tests/run-tests.sh
 ```
-Runs 13 checks through the full pipeline: clean Python and JavaScript run, SQL injection and `eval` are blocked, an empty sandbox is blocked, a hardcoded secret is blocked, a pre-installed package imports while the network stays blocked, `/output` files are saved while other files are discarded, an 80 MB write is stopped at the 50 MB cap, an oversized `sandbox/` is blocked, and an infinite loop is killed by the timeout. It moves anything in `sandbox/` and `output/` aside first and restores it afterwards, and exits non-zero if any check fails.
+Runs 14 checks through the full pipeline: clean Python and JavaScript run, SQL injection and `eval` are blocked, an empty sandbox is blocked, a hardcoded secret is blocked, pre-installed Python and Node packages load while the network stays blocked, `/output` files are saved while other files are discarded, an 80 MB write is stopped at the 50 MB cap, an oversized `sandbox/` is blocked, and an infinite loop is killed by the timeout. It moves anything in `sandbox/` and `output/` aside first and restores it afterwards, and exits non-zero if any check fails.
 
-## Adding Python packages
+## Adding packages
 The sandbox has no network, so packages are installed at image build time from a reviewed list:
 1. Add the package to `config/requirements.in`.
 2. Regenerate `config/requirements.txt` with `pip-compile --generate-hashes`.
 3. Review the diff.
 4. Run `docker compose build`.
 
-pip runs with `--require-hashes`, so a tampered download fails the build. Node packages are not pre-installed yet.
+pip runs with `--require-hashes`, so a tampered download fails the build.
+
+**Node packages** follow the same idea, using a lockfile:
+1. Add the package with an exact version (no `^` or `~`) to `config/package.json`.
+2. Regenerate `config/package-lock.json` with `npm install --package-lock-only --ignore-scripts` (run it in a throwaway container, not on your host).
+3. Review the diff.
+4. Run `docker compose build`.
+
+The image runs `npm ci --ignore-scripts`, which installs only what the lockfile lists, checks integrity hashes and refuses to run package install scripts. Packages live in `/opt/app/node_modules` and are found through `NODE_PATH`.
 
 ## Known limitations
 **Scanning**
