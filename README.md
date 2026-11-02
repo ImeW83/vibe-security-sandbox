@@ -15,6 +15,7 @@ A two-layer guardrail for running AI-generated code safely.
 - `config/scan.sh` : Semgrep scan (fail-closed)
 - `config/semgrep-rules/` : custom Semgrep rules (`eval`/`exec`), loaded by `scan.sh`
 - `config/rules/` : local copy of community Semgrep rules (Python and JavaScript), so scans run offline
+- `tests/run-tests.sh` : regression suite that runs six checks through the full pipeline
 - `config/safe-run.sh` : scan, then run in the sandbox
 - `Dockerfile` : Python 3.12 slim + Node.js, non-root user
 - `docker-compose.yml` : container limits
@@ -38,6 +39,12 @@ A two-layer guardrail for running AI-generated code safely.
 ./config/safe-run.sh python yourfile.py
 ./config/safe-run.sh node yourfile.js
 ```
+
+## Testing
+```bash
+./tests/run-tests.sh
+```
+Runs six checks through the full pipeline: clean Python and JavaScript run, SQL injection and `eval` are blocked (exit 1), an empty sandbox is blocked (exit 3) and a hardcoded secret is blocked (exit 4). The script moves anything in `sandbox/` aside first and restores it afterwards. It exits non-zero if any check fails.
 
 ## Known limitations
 - Community rules are incomplete (an `eval` call was missed in testing). A custom rule in `config/semgrep-rules/` now blocks `eval()` and `exec()` in Python and `eval()` in JavaScript/TypeScript, but indirect or obfuscated calls can still evade pattern matching
