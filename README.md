@@ -40,5 +40,5 @@ A two-layer guardrail for running AI-generated code safely.
 - Semgrep community rules are incomplete (an `eval` call was missed in testing)
 - `--severity ERROR` ignores WARNING-level findings
 - `--config auto` needs internet to fetch rules, so scans fail (and block) offline
-- Files could change between the scan and the run (TOCTOU gap)
+- The scan and the run use the same private snapshot of `sandbox/`, so files cannot change between them (TOCTOU closed). Files the code writes at runtime are lost when the run ends
 - Dependencies must be installed at image build time, since the sandbox has no network
