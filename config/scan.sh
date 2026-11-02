@@ -17,7 +17,7 @@ TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
 SEMGREP_IMAGE="semgrep/semgrep@sha256:451b3d875c00dac7ed5db5293e584a07de11449a409c10b3c2d2652f429630b6"
 
 echo "========================================="
-echo "[*] Starting Guardian Scan (Semgrep OSS)"
+echo "[*] Starting Guardian Scan (TruffleHog + Semgrep OSS)"
 echo "========================================="
 
 # Fail closed: an empty folder is a block condition, not a pass
@@ -26,6 +26,26 @@ if [ "$FILE_COUNT" -eq 0 ]; then
     echo "-----------------------------------------"
     echo "[FAIL] No files found in the scan target. Nothing to scan, so nothing to run."
     exit 3
+fi
+
+# Layer 3: secret filter (TruffleHog, offline: --no-verification sends nothing to vendor APIs)
+TRUFFLEHOG_IMAGE="trufflesecurity/trufflehog@sha256:0d003fc3abc4e1565eca8462b992001314de51451e96e3c44de80d116794d5d1"
+echo "[*] Running secret filter (TruffleHog)"
+docker run --rm \
+  -v "$TARGET_DIR:/scan:ro,z" \
+  "$TRUFFLEHOG_IMAGE" \
+  filesystem /scan --no-verification --no-update --fail --fail-on-scan-errors
+
+SECRET_EXIT_CODE=$?
+if [ "$SECRET_EXIT_CODE" -eq 183 ]; then
+    echo "-----------------------------------------"
+    echo "[FAIL] Secret filter found hardcoded credentials. Execution blocked."
+    echo "[!] Remove the secrets from the code, then try again."
+    exit 4
+elif [ "$SECRET_EXIT_CODE" -ne 0 ]; then
+    echo "-----------------------------------------"
+    echo "[ERROR] Secret filter did not complete (exit code $SECRET_EXIT_CODE). Treating as a failure."
+    exit 2
 fi
 
 # :ro = scanner can't modify the code, :z = SELinux label for Fedora

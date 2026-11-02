@@ -5,6 +5,7 @@ A two-layer guardrail for running AI-generated code safely.
 ## How it works
 1. **Layer 1: Sandbox.** A hardened Docker container that runs the code.
 2. **Layer 2: Guardian scan.** Semgrep audits the code before anything executes.
+3. **Layer 3: Secret filter.** TruffleHog scans for hardcoded credentials (API keys, tokens) before Semgrep runs, fully offline.
 
 `config/safe-run.sh` ties them together: scan first, run only if the scan passes.
 
@@ -29,7 +30,7 @@ A two-layer guardrail for running AI-generated code safely.
 ## Layer 2 controls
 - Semgrep image pinned by digest
 - Read-only mount of the scanned code
-- Fails closed: findings (exit 1), scanner crash (exit 2) and an empty sandbox (exit 3) all block execution
+- Fails closed: findings (exit 1), scanner crash (exit 2), an empty sandbox (exit 3) and a detected secret (exit 4) all block execution
 
 ## Usage
 ```bash
@@ -44,5 +45,8 @@ A two-layer guardrail for running AI-generated code safely.
 - Scans run fully offline using a local copy of the rules (`--metrics off`, `--disable-version-check`). The trade-off is that coverage is only what is copied into `config/rules/` (Python and JavaScript folders only), so the rules must be refreshed by hand to pick up new upstream rules
 - The scan and the run use the same private snapshot of `sandbox/`, so files cannot change between them (TOCTOU closed). Files the code writes at runtime are lost when the run ends
 - Dependencies must be installed at image build time, since the sandbox has no network
+- The secret filter is pattern-based (TruffleHog detectors), so unusual or custom secret formats and obfuscated values can be missed
+- Secrets are scanned with `--no-verification` to stay offline, so findings are reported as unverified and a revoked or fake key still blocks execution
+- The TruffleHog image is pinned by digest (`sha256:0d003fc3...`) and must be updated by hand to get new detectors
 - Community rules in `config/rules/` are copied from the official `semgrep/semgrep-rules` repo, pinned to commit `16b9e6d45f10649f6a531ec4838ed9924372c3bc`
 - The noisy rule `python.lang.security.audit.dangerous-subprocess-use-audit` was removed on purpose, because it blocks any `subprocess` call with a variable argument even when `shell=False`. `subprocess-shell-true` still blocks the dangerous `shell=True` case
