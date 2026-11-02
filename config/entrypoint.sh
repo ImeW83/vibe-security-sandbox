@@ -16,10 +16,18 @@ fi
 # Keep file permissions tight for anything the agent creates
 umask 077
 
-echo "Sandbox ready. Working directory: $(pwd)"
+echo "Sandbox ready. Working directory: $(pwd)" >&2
 
-# Hand off to whatever command was passed (defaults to a shell)
+# Interactive shell when no command is given (nothing is packed)
 if [ "$#" -eq 0 ]; then
   exec /bin/sh
 fi
-exec "$@"
+
+# Run the command with its stdout sent to stderr, so stdout is free for the output archive
+RC=0
+"$@" 1>&2 || RC=$?
+
+# Pack /output to stdout; the host unpacks it safely
+tar -C /output -cf - . || exit 70
+
+exit "$RC"

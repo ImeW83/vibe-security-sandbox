@@ -12,3 +12,7 @@ __pycache__/
 *.pyc
 node_modules/
 npm-debug.log*
+
+# Run results stay out of the repo; only the folder itself is tracked
+output/*
+!output/.gitkeep

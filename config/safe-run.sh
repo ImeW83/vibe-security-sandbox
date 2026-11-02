@@ -30,4 +30,13 @@ fi
 
 # Step 3: run the same snapshot in the locked-down container
 echo "[RUN] Scan passed. Executing the scanned snapshot inside the sandbox..."
-SANDBOX_SRC="$SNAPSHOT" docker compose -f "$ROOT_DIR/docker-compose.yml" run --rm sandbox "$@"
+ARCHIVE="$(mktemp)"
+trap 'rm -rf "$SNAPSHOT" "$ARCHIVE"' EXIT
+
+SANDBOX_SRC="$SNAPSHOT" docker compose -f "$ROOT_DIR/docker-compose.yml" run --rm -T sandbox "$@" > "$ARCHIVE"
+RUN_RC=$?
+
+# Save run results (if any) through the safe unpacker
+"$SCRIPT_DIR/unpack-output.sh" "$ARCHIVE" "$ROOT_DIR/output"
+
+exit "$RUN_RC"

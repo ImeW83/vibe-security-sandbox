@@ -14,6 +14,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
+      # Run results: hard 50 MB cap, packed out by the entrypoint after the run
+      - /output:size=50m,noexec,nosuid,uid=1000,gid=1000,mode=0700
 
     # Privilege lockdown
     cap_drop:

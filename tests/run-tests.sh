@@ -7,6 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
 SANDBOX="$ROOT_DIR/sandbox"
 SAFE_RUN="$ROOT_DIR/config/safe-run.sh"
+OUTPUT="$ROOT_DIR/output"
+OUT_BACKUP="$(mktemp -d)"
 
 BACKUP="$(mktemp -d)"
 LOG="$(mktemp)"
@@ -19,10 +21,16 @@ clear_sandbox() {
 
 cleanup() {
   clear_sandbox
+  find "$OUTPUT" -mindepth 1 ! -name '.gitkeep' -delete
+  find "$OUT_BACKUP" -mindepth 1 -maxdepth 1 -exec mv {} "$OUTPUT"/ \;
+  rm -rf "$OUT_BACKUP"
   find "$BACKUP" -mindepth 1 -maxdepth 1 -exec mv {} "$SANDBOX"/ \;
   rm -rf "$BACKUP" "$LOG"
 }
 trap cleanup EXIT
+
+# Back up whatever is in output/ (except the placeholder)
+find "$OUTPUT" -mindepth 1 -maxdepth 1 ! -name '.gitkeep' -exec mv {} "$OUT_BACKUP"/ \;
 
 # Back up whatever is in sandbox/ (except the placeholder)
 find "$SANDBOX" -mindepth 1 -maxdepth 1 ! -name '.gitkeep' -exec mv {} "$BACKUP"/ \;
@@ -104,6 +112,46 @@ except Exception:
     print("deps ok, network blocked")
 T7
 check "pinned dependency imports, network blocked" 0 "deps ok, network blocked" no python t7.py
+
+# 8. File written to /output is saved; file written next to the code is lost
+clear_sandbox
+find "$OUTPUT" -mindepth 1 ! -name '.gitkeep' -delete
+cat > "$SANDBOX/t8.py" << 'T8'
+open("/output/kept.txt", "w").write("kept\n")
+open("/sandbox/lost.txt", "w").write("lost\n")
+print("wrote both files")
+T8
+check "output run completes" 0 "wrote both files" no python t8.py
+if [ -f "$OUTPUT/kept.txt" ] && [ ! -f "$SANDBOX/lost.txt" ]; then
+  echo "PASS  /output file saved, snapshot file discarded"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL  /output file saved, snapshot file discarded"
+  FAIL=$((FAIL + 1))
+fi
+
+# 9. An 80 MB write is stopped at the 50 MB cap
+clear_sandbox
+find "$OUTPUT" -mindepth 1 ! -name '.gitkeep' -delete
+cat > "$SANDBOX/t9.py" << 'T9'
+import os
+try:
+    with open("/output/big.bin", "wb") as f:
+        for _ in range(80):
+            f.write(os.urandom(1024 * 1024))
+    print("CANARY" + "_RAN")
+except OSError:
+    print("write stopped")
+T9
+check "oversized write stopped" 0 "write stopped" yes python t9.py
+BIG_SIZE=$(stat -c %s "$OUTPUT/big.bin" 2>/dev/null || echo 0)
+if [ "$BIG_SIZE" -gt 0 ] && [ "$BIG_SIZE" -le 52428800 ]; then
+  echo "PASS  saved output is within the 50 MB cap ($BIG_SIZE bytes)"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL  saved output is within the 50 MB cap ($BIG_SIZE bytes)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"

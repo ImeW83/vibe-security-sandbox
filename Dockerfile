@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
 # Create a non-root user with no login shell
 RUN useradd --create-home --shell /usr/sbin/nologin sandboxuser
 
+# Mount point for run results (the only folder that survives a run)
+RUN mkdir /output && chown sandboxuser:sandboxuser /output
+
 WORKDIR /sandbox
 
 # Copy the entrypoint script and make it executable
