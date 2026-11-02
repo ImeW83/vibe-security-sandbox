@@ -8,7 +8,7 @@ services:
     # Only this folder is writable from the host side
     # ":z" is needed on Fedora so SELinux allows the container to access it
     volumes:
-      - ./sandbox:/sandbox:z
+      - ${SANDBOX_SRC:-./sandbox}:/sandbox:z
 
     # Filesystem lockdown
     read_only: true
