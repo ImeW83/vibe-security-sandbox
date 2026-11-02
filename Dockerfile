@@ -5,6 +5,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-install pinned Python packages (build time only, hashes enforced)
+COPY config/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
 # Create a non-root user with no login shell
 RUN useradd --create-home --shell /usr/sbin/nologin sandboxuser
 

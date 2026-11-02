@@ -93,6 +93,18 @@ print("CANARY" + "_RAN")
 T6
 check "hardcoded secret blocked" 4 "Secret filter found" yes python t6.py
 
+# 7. Pre-installed dependency (requests) imports and the network stays blocked
+clear_sandbox
+cat > "$SANDBOX/t7.py" << 'T7'
+import requests
+try:
+    requests.get("http://example.com", timeout=5)
+    print("NETWORK" + "_REACHABLE")
+except Exception:
+    print("deps ok, network blocked")
+T7
+check "pinned dependency imports, network blocked" 0 "deps ok, network blocked" no python t7.py
+
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
