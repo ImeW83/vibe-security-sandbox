@@ -1,5 +1,7 @@
 # vibe-security-sandbox
 
+[![guardrail tests](https://github.com/ImeW83/vibe-security-sandbox/actions/workflows/tests.yml/badge.svg)](https://github.com/ImeW83/vibe-security-sandbox/actions/workflows/tests.yml)
+
 A guardrail for running AI-generated code. The code is checked for secrets and security flaws first, then run in a locked-down container with no network.
 
 ## How a run works
@@ -88,6 +90,9 @@ pip runs with `--require-hashes`, so a tampered download fails the build.
 4. Run `docker compose build`.
 
 The image runs `npm ci --ignore-scripts`, which installs only what the lockfile lists, checks integrity hashes and refuses to run package install scripts. Packages live in `/opt/app/node_modules` and are found through `NODE_PATH`.
+
+## Continuous integration
+`.github/workflows/tests.yml` runs `./tests/run-tests.sh` on every push to `main` and on every pull request. The workflow builds the image and runs all 14 checks on a GitHub-hosted runner. The `actions/checkout` step is pinned to a full commit SHA, the workflow token is read-only (`contents: read`), and a run is cancelled after 30 minutes. `config/safe-run.sh` runs the container as the host user's uid and gid, so it works on runners where that is not 1000.
 
 ## Known limitations
 **Scanning**
