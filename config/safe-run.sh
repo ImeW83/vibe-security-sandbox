@@ -50,7 +50,7 @@ rm -f "$TIMEOUT_FLAG"
 ( sleep "$RUN_TIMEOUT" && touch "$TIMEOUT_FLAG" && docker rm -f "$RUN_NAME" > /dev/null 2>&1 ) &
 WATCHER=$!
 
-SANDBOX_SRC="$SNAPSHOT" docker compose -f "$ROOT_DIR/docker-compose.yml" run --rm -T --name "$RUN_NAME" sandbox "$@" > "$ARCHIVE"
+SANDBOX_SRC="$SNAPSHOT" RUN_UID="$(id -u)" RUN_GID="$(id -g)" docker compose -f "$ROOT_DIR/docker-compose.yml" run --rm -T --user "$(id -u):$(id -g)" --name "$RUN_NAME" sandbox "$@" > "$ARCHIVE"
 RUN_RC=$?
 
 kill "$WATCHER" 2> /dev/null
