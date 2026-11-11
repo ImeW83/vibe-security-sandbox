@@ -54,6 +54,31 @@ check() {
   fi
 }
 
+# heal_prompt_problem PROMPT KIND KEY VALUE FILE LINE
+# Parses the prompt with python3. Prints "OK" if the JSON is valid, has the expected "kind",
+# and holds a finding with KEY == VALUE, the given file and line. Otherwise prints why not.
+# Callers must treat anything other than exactly "OK" as a failure (so a missing python3 fails closed).
+heal_prompt_problem() {
+  python3 -I - "$@" << 'PY'
+import json, sys
+path, kind, key, value, fname, line = sys.argv[1:7]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception as e:
+    print("prompt is missing or not valid JSON (%s)" % type(e).__name__)
+    sys.exit(0)
+if data.get("kind") != kind:
+    print("kind is %r, expected %r" % (data.get("kind"), kind))
+    sys.exit(0)
+for fnd in data.get("findings", []):
+    if fnd.get(key) == value and fnd.get("file") == fname and fnd.get("line") == int(line):
+        print("OK")
+        sys.exit(0)
+print("no finding with %s=%s, file=%s, line=%s" % (key, value, fname, line))
+PY
+}
+
 echo "Running guardrail tests (this takes a minute or two)..."
 
 # 1. Clean Python runs
@@ -180,6 +205,102 @@ require("http").get("http://example.com", () => {
 });
 T12
 check "pinned Node dependency loads, network blocked" 0 "node deps ok, network blocked: 2" no node t12.js
+
+# 13. heal.py removes a stale prompt itself (empty sandbox -> unfixable exit 3, no new prompt)
+clear_sandbox
+find "$OUTPUT" -mindepth 1 ! -name '.gitkeep' -delete
+STALE="$OUTPUT/heal-prompt.json"
+echo '{"stale": true}' > "$STALE"
+if [ ! -f "$STALE" ]; then
+  echo "FAIL  heal.py removes stale prompt (could not create the stale file)"
+  FAIL=$((FAIL + 1))
+else
+  "$ROOT_DIR/config/heal.py" > "$LOG" 2>&1
+  HEAL_RC=$?
+  if [ "$HEAL_RC" -eq 3 ] && [ ! -e "$STALE" ]; then
+    echo "PASS  heal.py removes stale prompt, empty sandbox (exit $HEAL_RC)"
+    PASS=$((PASS + 1))
+  else
+    REPORTED=0
+    if [ "$HEAL_RC" -ne 3 ]; then
+      echo "FAIL  heal.py removes stale prompt: wrong exit code (expected 3, got $HEAL_RC)"
+      REPORTED=1
+    fi
+    if [ -e "$STALE" ]; then
+      echo "FAIL  heal.py removes stale prompt: stale file was left behind"
+      REPORTED=1
+    fi
+    if [ "$REPORTED" -eq 0 ]; then
+      echo "FAIL  heal.py removes stale prompt (unexpected state, exit $HEAL_RC)"
+    fi
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
+# 14. heal.py, fixable Semgrep finding (exit 1): prompt names the rule, file and line
+clear_sandbox
+PROMPT="$OUTPUT/heal-prompt.json"
+rm -f "$PROMPT"
+cat > "$SANDBOX/t14.py" << 'T14'
+import subprocess
+
+def run(cmd):
+    subprocess.call(cmd, shell=True)
+T14
+"$ROOT_DIR/config/heal.py" > "$LOG" 2>&1
+HEAL_RC=$?
+REPORTED=0
+if [ "$HEAL_RC" -ne 1 ]; then
+  echo "FAIL  heal.py fixable Semgrep case: wrong exit code (expected 1, got $HEAL_RC)"
+  REPORTED=1
+fi
+PROBLEM="$(heal_prompt_problem "$PROMPT" semgrep rule subprocess-shell-true t14.py 4)"
+if [ "$PROBLEM" != "OK" ]; then
+  echo "FAIL  heal.py fixable Semgrep case: ${PROBLEM:-prompt check did not run}"
+  REPORTED=1
+fi
+if [ "$REPORTED" -eq 0 ]; then
+  echo "PASS  heal.py fixable Semgrep case writes a correct prompt (exit $HEAL_RC)"
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+fi
+
+# 15. heal.py, fixable secret (exit 4): prompt names the detector, file and line, and never holds the token
+clear_sandbox
+rm -f "$PROMPT"
+cat > "$SANDBOX/t15.py" << 'T15'
+TOKEN = "ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF3gH5"
+print("hello")
+T15
+if ! grep -qF 'ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF3gH5' "$SANDBOX/t15.py"; then
+  echo "FAIL  heal.py fixable secret case: fixture does not contain the token (zero-leak check would be vacuous)"
+  FAIL=$((FAIL + 1))
+else
+  "$ROOT_DIR/config/heal.py" > "$LOG" 2>&1
+  HEAL_RC=$?
+  REPORTED=0
+  if [ "$HEAL_RC" -ne 4 ]; then
+    echo "FAIL  heal.py fixable secret case: wrong exit code (expected 4, got $HEAL_RC)"
+    REPORTED=1
+  fi
+  PROBLEM="$(heal_prompt_problem "$PROMPT" secret detector Github t15.py 1)"
+  if [ "$PROBLEM" != "OK" ]; then
+    echo "FAIL  heal.py fixable secret case: ${PROBLEM:-prompt check did not run}"
+    REPORTED=1
+  fi
+  LEAKS="$(python3 -I -c 'import sys; print(open(sys.argv[1]).read().count("ghp_"))' "$PROMPT" 2>/dev/null)"
+  if [ "$LEAKS" != "0" ]; then
+    echo "FAIL  heal.py fixable secret case: leak check failed (count of ghp_ in prompt: ${LEAKS:-prompt unreadable})"
+    REPORTED=1
+  fi
+  if [ "$REPORTED" -eq 0 ]; then
+    echo "PASS  heal.py fixable secret case writes a correct prompt, 0 token leaks (exit $HEAL_RC)"
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+  fi
+fi
 
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"
