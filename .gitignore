@@ -16,3 +16,6 @@ npm-debug.log*
 # Run results stay out of the repo; only the folder itself is tracked
 output/*
 !output/.gitkeep
+
+# Host-side venv for heal.py --llm (never inside the sandbox)
+.venv-heal/
