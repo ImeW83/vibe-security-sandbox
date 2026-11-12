@@ -12,6 +12,8 @@ OUT_BACKUP="$(mktemp -d)"
 
 BACKUP="$(mktemp -d)"
 LOG="$(mktemp)"
+PAYLOAD_OUT="$(mktemp)"
+PAYLOAD_ERR="$(mktemp)"
 PASS=0
 FAIL=0
 
@@ -25,7 +27,7 @@ cleanup() {
   find "$OUT_BACKUP" -mindepth 1 -maxdepth 1 -exec mv {} "$OUTPUT"/ \;
   rm -rf "$OUT_BACKUP"
   find "$BACKUP" -mindepth 1 -maxdepth 1 -exec mv {} "$SANDBOX"/ \;
-  rm -rf "$BACKUP" "$LOG"
+  rm -rf "$BACKUP" "$LOG" "$PAYLOAD_OUT" "$PAYLOAD_ERR"
 }
 trap cleanup EXIT
 
@@ -77,6 +79,96 @@ for fnd in data.get("findings", []):
         sys.exit(0)
 print("no finding with %s=%s, file=%s, line=%s" % (key, value, fname, line))
 PY
+}
+
+# run_payload: run heal.py --build-payload; stdout -> $PAYLOAD_OUT, stderr -> $PAYLOAD_ERR, exit -> $HEAL_RC
+run_payload() {
+  PROMPT="$OUTPUT/heal-prompt.json"
+  rm -f "$PROMPT"
+  "$ROOT_DIR/config/heal.py" --build-payload > "$PAYLOAD_OUT" 2> "$PAYLOAD_ERR"
+  HEAL_RC=$?
+}
+
+# payload_problem FILE KIND PATH MUST_CONTAIN MUST_NOT_CONTAIN
+# Parses the payload JSON with python3. Prints "OK" if it has the kind, a file at PATH that contains
+# MUST_CONTAIN (skipped if empty), and nowhere contains MUST_NOT_CONTAIN (skipped if empty).
+# Otherwise prints why not. Callers treat anything other than exactly "OK" as a failure.
+payload_problem() {
+  python3 -I - "$@" << 'PY'
+import json, sys
+pfile, kind, path, want, banned = sys.argv[1:6]
+try:
+    with open(pfile) as f:
+        data = json.load(f)
+except Exception as e:
+    print("payload is missing or not valid JSON (%s)" % type(e).__name__)
+    sys.exit(0)
+if data.get("kind") != kind:
+    print("kind is %r, expected %r" % (data.get("kind"), kind))
+    sys.exit(0)
+files = {f.get("path"): f.get("content", "") for f in data.get("files", [])}
+if path not in files:
+    print("payload has no file %s" % path)
+    sys.exit(0)
+if want and want not in files[path]:
+    print("file content is missing the expected text")
+    sys.exit(0)
+if banned and banned in json.dumps(data):
+    print("payload contains text that must not be sent")
+    sys.exit(0)
+print("OK")
+PY
+}
+
+# count_in_files PATTERN FILE...: total occurrences of PATTERN. Prints nothing if a file is unreadable.
+count_in_files() {
+  python3 -I -c 'import sys; pat = sys.argv[1]; print(sum(open(p, errors="replace").read().count(pat) for p in sys.argv[2:]))' "$@" 2>/dev/null
+}
+
+# heal_unit MODE: import heal.py and call build_payload directly. Prints "OK" or why not.
+#   symlink: a flagged file that is a symlink to a file outside the folder must be refused
+#   gate:    a payload that still holds a token must be stopped by the pre-send secret gate
+heal_unit() {
+  python3 -I -B - "$ROOT_DIR/config/heal.py" "$1" << 'PY'
+import importlib.machinery, importlib.util, os, sys, tempfile
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("heal_mod", sys.argv[1])
+spec = importlib.util.spec_from_loader("heal_mod", loader)
+h = importlib.util.module_from_spec(spec)
+loader.exec_module(h)
+mode = sys.argv[2]
+with tempfile.TemporaryDirectory() as tmp:
+    box = os.path.join(tmp, "box")
+    os.makedirs(box)
+    if mode == "symlink":
+        outside = os.path.join(tmp, "outside.txt")
+        with open(outside, "w") as f:
+            f.write("SYMLINK-SENTINEL")
+        os.symlink(outside, os.path.join(box, "link.py"))
+        name, want = "link.py", ("refusing a path outside", "not a regular file")
+    else:
+        with open(os.path.join(box, "leak.py"), "w") as f:
+            f.write('TOKEN = "ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF3gH5"\n')
+        name, want = "leak.py", ("pre-send secret gate",)
+    prompt = {"kind": "semgrep", "instruction": "x", "findings": [{"rule": "r", "file": name, "line": 1}]}
+    try:
+        h.build_payload(prompt, box)
+    except h.HealError as e:
+        msg = str(e)
+        print("OK" if any(w in msg for w in want) and "SYMLINK-SENTINEL" not in msg else "wrong error: " + msg)
+    else:
+        print("no error was raised; the payload was built")
+PY
+}
+
+# finish_check REPORTED PASS_MESSAGE: count one PASS if nothing was reported, else one FAIL
+finish_check() {
+  if [ "$1" -eq 0 ]; then
+    echo "PASS  $2"
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+  fi
 }
 
 echo "Running guardrail tests (this takes a minute or two)..."
@@ -301,6 +393,98 @@ else
     FAIL=$((FAIL + 1))
   fi
 fi
+
+# 16. --build-payload, secret case: the flagged line is removed and the token appears nowhere
+clear_sandbox
+cat > "$SANDBOX/t16.py" << 'T16'
+TOKEN = "ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF3gH5"
+print("hello")
+T16
+if ! grep -qF 'ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF3gH5' "$SANDBOX/t16.py"; then
+  echo "FAIL  payload secret case: fixture does not contain the token (zero-leak check would be vacuous)"
+  FAIL=$((FAIL + 1))
+else
+  run_payload
+  REPORTED=0
+  if [ "$HEAL_RC" -ne 4 ]; then
+    echo "FAIL  payload secret case: wrong exit code (expected 4, got $HEAL_RC)"
+    REPORTED=1
+  fi
+  PROBLEM="$(payload_problem "$PAYLOAD_OUT" secret t16.py '<line removed: hardcoded Github credential>' 'ghp_')"
+  if [ "$PROBLEM" != "OK" ]; then
+    echo "FAIL  payload secret case: ${PROBLEM:-payload check did not run}"
+    REPORTED=1
+  fi
+  LEAKS="$(count_in_files ghp_ "$PAYLOAD_OUT" "$PAYLOAD_ERR" "$PROMPT")"
+  if [ "$LEAKS" != "0" ]; then
+    echo "FAIL  payload secret case: ghp_ count across payload, stderr and prompt is ${LEAKS:-unreadable}"
+    REPORTED=1
+  fi
+  finish_check "$REPORTED" "payload secret case: line removed, 0 token leaks (exit $HEAL_RC)"
+fi
+
+# 17. --build-payload, Semgrep case: the flagged file is sent as written
+clear_sandbox
+cat > "$SANDBOX/t17.py" << 'T17'
+import subprocess
+
+def run(cmd):
+    subprocess.call(cmd, shell=True)
+T17
+run_payload
+REPORTED=0
+if [ "$HEAL_RC" -ne 1 ]; then
+  echo "FAIL  payload Semgrep case: wrong exit code (expected 1, got $HEAL_RC)"
+  REPORTED=1
+fi
+PROBLEM="$(payload_problem "$PAYLOAD_OUT" semgrep t17.py 'subprocess.call(cmd, shell=True)' '')"
+if [ "$PROBLEM" != "OK" ]; then
+  echo "FAIL  payload Semgrep case: ${PROBLEM:-payload check did not run}"
+  REPORTED=1
+fi
+finish_check "$REPORTED" "payload Semgrep case: file sent as written (exit $HEAL_RC)"
+
+# 18. A flagged line that may start a multi-line secret is refused, and nothing is printed
+clear_sandbox
+printf 'TOKEN = """ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF3gH5\n"""\nprint("hello")\n' > "$SANDBOX/t18.py"
+run_payload
+REPORTED=0
+if [ "$HEAL_RC" -ne 2 ]; then
+  echo "FAIL  multi-line secret refused: wrong exit code (expected 2, got $HEAL_RC)"
+  REPORTED=1
+fi
+if ! grep -q 'multi-line secret' "$PAYLOAD_ERR"; then
+  echo "FAIL  multi-line secret refused: the refusal message is missing"
+  REPORTED=1
+fi
+if [ -s "$PAYLOAD_OUT" ]; then
+  echo "FAIL  multi-line secret refused: a payload was printed anyway"
+  REPORTED=1
+fi
+LEAKS="$(count_in_files ghp_ "$PAYLOAD_OUT" "$PAYLOAD_ERR" "$PROMPT")"
+if [ "$LEAKS" != "0" ]; then
+  echo "FAIL  multi-line secret refused: ghp_ count is ${LEAKS:-unreadable}"
+  REPORTED=1
+fi
+finish_check "$REPORTED" "multi-line secret refused, nothing printed (exit $HEAL_RC)"
+
+# 19. A flagged file that is a symlink to a file outside the folder is refused (no Docker needed)
+RESULT="$(heal_unit symlink)"
+REPORTED=0
+if [ "$RESULT" != "OK" ]; then
+  echo "FAIL  symlink refused: ${RESULT:-check did not run}"
+  REPORTED=1
+fi
+finish_check "$REPORTED" "symlink to an outside file refused"
+
+# 20. The pre-send secret gate stops a payload that still holds a token
+RESULT="$(heal_unit gate)"
+REPORTED=0
+if [ "$RESULT" != "OK" ]; then
+  echo "FAIL  pre-send gate: ${RESULT:-check did not run}"
+  REPORTED=1
+fi
+finish_check "$REPORTED" "pre-send gate blocks a payload holding a token"
 
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"
