@@ -486,6 +486,21 @@ if [ "$RESULT" != "OK" ]; then
 fi
 finish_check "$REPORTED" "pre-send gate blocks a payload holding a token"
 
+# 21 onward. heal.py --llm scenarios: a fake model with the real scans (tests/heal_llm_scenarios.py).
+# The runner prints one PASS or FAIL line per scenario; they are shown and counted here.
+# sandbox/ and output/ were backed up at the top, so the runner may empty them between scenarios.
+export VIBE_TESTS_BACKED_UP=1
+python3 -I -B -u "$SCRIPT_DIR/heal_llm_scenarios.py" "$ROOT_DIR" 2>&1 | tee "$LOG"
+SCEN_RC=${PIPESTATUS[0]}
+SCEN_PASS=$(grep -c '^PASS' "$LOG")
+SCEN_FAIL=$(grep -c '^FAIL' "$LOG")
+PASS=$((PASS + SCEN_PASS))
+FAIL=$((FAIL + SCEN_FAIL))
+if [ $((SCEN_PASS + SCEN_FAIL)) -eq 0 ] || { [ "$SCEN_RC" -ne 0 ] && [ "$SCEN_FAIL" -eq 0 ]; }; then
+  echo "FAIL  llm scenarios: the runner stopped (exit $SCEN_RC) without reporting results"
+  FAIL=$((FAIL + 1))
+fi
+
 echo "-----------------------------------------"
 echo "Passed: $PASS   Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
